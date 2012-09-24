@@ -36,3 +36,11 @@ while (stream.IsStreamRunning() && (numberOfTweets != 0)) {
 			
 // make sure to clean up
 stream.StopAsyncStream ();
+
+This sample is provided in Program.cs
+
+If you would like to produce a DLL for use in your projects,
+change the build settings of your solution to Library.
+
+If you want to run the code in Program.cs, 
+change the build settings to Executable.
