@@ -1,28 +1,24 @@
 using System;
-using System.Text;
-using System.IO;
-using System.Net;
 using System.Configuration;
-using System.Threading;
-using System.Diagnostics;
-using System.Web;
-using System.Reflection;
-using System.Runtime.Serialization.Json;
+using System.IO;
 using System.Messaging;
-using System.Security.Cryptography;
+using System.Net;
+using System.Runtime.Serialization.Json;
+using System.Text;
+using System.Threading;
+using System.Web;
 
 namespace TwitterStreamClient
 {
-    public class TwitterStream
+    public class TwitterStream : OAuthBase
     {
+        private readonly string access_token = ConfigurationManager.AppSettings["access_token"];
+        private readonly string access_token_secret = ConfigurationManager.AppSettings["access_token_secret"];
+        private readonly string customer_key = ConfigurationManager.AppSettings["customer_key"];
+        private readonly string customer_secret = ConfigurationManager.AppSettings["customer_secret"];
+
         public void Stream2Queue()
         {
-            string username = ConfigurationManager.AppSettings["twitter_username"];
-            string password = ConfigurationManager.AppSettings["twitter_password"];
-            if (ConfigurationManager.AppSettings["twitter_password_encrypted"] == "true")
-            {
-                password = Common.Decrypt(password);
-            }
             //Twitter Streaming API
             string stream_url = ConfigurationManager.AppSettings["stream_url"];
 
@@ -32,9 +28,14 @@ namespace TwitterStreamClient
             MessageQueue q = null;
             string useQueue = ConfigurationManager.AppSettings["use_queue"];
             string postparameters = (ConfigurationManager.AppSettings["track_keywords"].Length == 0 ? string.Empty : "&track=" + ConfigurationManager.AppSettings["track_keywords"]) +
-                (ConfigurationManager.AppSettings["follow_userid"].Length == 0 ? string.Empty : "&follow=" + ConfigurationManager.AppSettings["follow_userid"]) +
-                (ConfigurationManager.AppSettings["location_coord"].Length == 0 ? string.Empty : "&locations=" + ConfigurationManager.AppSettings["location_coord"]);
+                                    (ConfigurationManager.AppSettings["follow_userid"].Length == 0 ? string.Empty : "&follow=" + ConfigurationManager.AppSettings["follow_userid"]) +
+                                    (ConfigurationManager.AppSettings["location_coord"].Length == 0 ? string.Empty : "&locations=" + ConfigurationManager.AppSettings["location_coord"]);
 
+            if (!string.IsNullOrEmpty(postparameters))
+            {
+                if (postparameters.IndexOf('&') == 0)
+                    postparameters = postparameters.Remove(0, 1).Replace("#", "%23");
+            }
 
             int wait = 250;
             string jsonText = "";
@@ -48,26 +49,21 @@ namespace TwitterStreamClient
                 if (useQueue == "true")
                 {
                     if (MessageQueue.Exists(@".\private$\Twitter"))
-                    {
                         q = new MessageQueue(@".\private$\Twitter");
-                    }
                     else
-                    {
                         q = MessageQueue.Create(@".\private$\Twitter");
-                    }
                 }
 
                 while (true)
                 {
-
                     try
                     {
                         //Connect
-                        webRequest = (HttpWebRequest)WebRequest.Create(stream_url);
-                        webRequest.Credentials = new NetworkCredential(username, password);
+                        webRequest = (HttpWebRequest) WebRequest.Create(stream_url);
                         webRequest.Timeout = -1;
+                        webRequest.Headers.Add("Authorization", GetAuthHeader(stream_url + "?" + postparameters));
 
-                        Encoding encode = System.Text.Encoding.GetEncoding("utf-8");
+                        Encoding encode = Encoding.GetEncoding("utf-8");
                         if (postparameters.Length > 0)
                         {
                             webRequest.Method = "POST";
@@ -81,7 +77,7 @@ namespace TwitterStreamClient
                             _twitterPost.Close();
                         }
 
-                        webResponse = (HttpWebResponse)webRequest.GetResponse();
+                        webResponse = (HttpWebResponse) webRequest.GetResponse();
                         responseStream = new StreamReader(webResponse.GetResponseStream(), encode);
 
                         //Read the stream.
@@ -100,7 +96,6 @@ namespace TwitterStreamClient
 
                             //Write Status
                             Console.Write(jsonText);
-
                         }
                         //Abort is needed or responseStream.Close() will hang.
                         webRequest.Abort();
@@ -108,7 +103,6 @@ namespace TwitterStreamClient
                         responseStream = null;
                         webResponse.Close();
                         webResponse = null;
-
                     }
                     catch (WebException ex)
                     {
@@ -122,15 +116,11 @@ namespace TwitterStreamClient
                             //and finally cap the wait at 240 seconds. 
                             //Exponential Backoff
                             if (wait < 10000)
-                            {
                                 wait = 10000;
-                            }
                             else
                             {
                                 if (wait < 240000)
-                                {
-                                    wait = wait * 2;
-                                }
+                                    wait = wait*2;
                             }
                         }
                         else
@@ -140,10 +130,7 @@ namespace TwitterStreamClient
                             //Perhaps start at 250 milliseconds and cap at 16 seconds.
                             //Linear Backoff
                             if (wait < 16000)
-                            {
                                 wait += 250;
-                            }
-
                         }
                     }
                     catch (Exception ex)
@@ -154,9 +141,7 @@ namespace TwitterStreamClient
                     finally
                     {
                         if (webRequest != null)
-                        {
                             webRequest.Abort();
-                        }
                         if (responseStream != null)
                         {
                             responseStream.Close();
@@ -181,8 +166,8 @@ namespace TwitterStreamClient
                 Thread.Sleep(wait);
             }
         }
-        
-        
+
+
         public void QueueRead()
         {
             MessageQueue q;
@@ -192,9 +177,7 @@ namespace TwitterStreamClient
             try
             {
                 if (MessageQueue.Exists(@".\private$\Twitter"))
-                {
                     q = new MessageQueue(@".\private$\Twitter");
-                }
                 else
                 {
                     Console.WriteLine("Queue does not exists.");
@@ -208,17 +191,15 @@ namespace TwitterStreamClient
                     {
                         message = q.Receive();
                         message.Formatter =
-                            new XmlMessageFormatter(new String[] { "System.String" });
+                            new XmlMessageFormatter(new[] {"System.String"});
                         if (multiThread == "true")
-                        {
                             ThreadPool.QueueUserWorkItem(MessageProcess, message);
-                        }
                         else
-                        {
                             MessageProcess(message);
-                        }
                     }
-                    catch { continue; }
+                    catch
+                    {
+                    }
                 }
             }
             catch (Exception ex)
@@ -227,8 +208,8 @@ namespace TwitterStreamClient
                 logger.append(ex.Message, Logger.LogLevel.ERROR);
             }
         }
-        
-        
+
+
         public void MessageProcess(object objMessage)
         {
             status status = new status();
@@ -241,7 +222,7 @@ namespace TwitterStreamClient
 
                 byte[] byteArray = Encoding.UTF8.GetBytes(message.Body.ToString());
                 MemoryStream stream = new MemoryStream(byteArray);
-                
+
                 //TODO:  Check for multiple objects.
                 status = json.ReadObject(stream) as status;
 
@@ -249,16 +230,39 @@ namespace TwitterStreamClient
 
                 //TODO: Store the status object
                 DataStore.Add(status);
-
-
-
-
             }
             catch (Exception ex)
             {
                 Console.WriteLine(ex.Message);
                 logger.append(ex.Message, Logger.LogLevel.ERROR);
             }
+        }
+
+        private string GetAuthHeader(string url)
+        {
+            string normalizedString;
+            string normalizeUrl;
+            string timeStamp = GenerateTimeStamp();
+            string nonce = GenerateNonce();
+
+            
+            string oauthSignature = GenerateSignature(new Uri(url), customer_key, customer_secret, access_token, access_token_secret, "POST", timeStamp, nonce, out normalizeUrl, out normalizedString);
+
+
+            // create the request header
+            const string headerFormat = "OAuth oauth_nonce=\"{0}\", oauth_signature_method=\"{1}\", " +
+                                        "oauth_timestamp=\"{2}\", oauth_consumer_key=\"{3}\", " +
+                                        "oauth_token=\"{4}\", oauth_signature=\"{5}\", " +
+                                        "oauth_version=\"{6}\"";
+
+            return string.Format(headerFormat,
+                Uri.EscapeDataString(nonce),
+                Uri.EscapeDataString(Hmacsha1SignatureType),
+                Uri.EscapeDataString(timeStamp),
+                Uri.EscapeDataString(customer_key),
+                Uri.EscapeDataString(access_token),
+                Uri.EscapeDataString(oauthSignature),
+                Uri.EscapeDataString(OAuthVersion));
         }
     }
 }

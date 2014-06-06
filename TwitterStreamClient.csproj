@@ -73,9 +73,9 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="Common.cs" />
     <Compile Include="DataStore.cs" />
     <Compile Include="logger.cs" />
+    <Compile Include="OAuthBase.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="status.cs" />
     <Compile Include="TwitterStream.cs" />

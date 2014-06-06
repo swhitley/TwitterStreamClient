@@ -59,12 +59,6 @@ namespace TwitterStreamClient
                         Console.WriteLine("\nPress any key to continue . . .");
                         Console.ReadKey();
                         break;
-                    case "/encrypt":
-                        if (args.Length > 1)
-                        {
-                            Console.WriteLine(Common.Encrypt(args[1]));
-                        }
-                        break;
                     case "/p":
                         stream.QueueRead();
                         break;
